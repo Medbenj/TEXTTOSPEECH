@@ -1,0 +1,12 @@
+[project]
+name = "texttospeech"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "google-genai",
+    "edge-tts",
+    "pydub",
+    "audioop-lts; python_version >= '3.13'",
+]
