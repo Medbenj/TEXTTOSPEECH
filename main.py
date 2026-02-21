@@ -69,7 +69,7 @@ def analyze_text(text: str, api_key: Optional[str] = None) -> list[dict]:
     Send text to Gemini (2.5 Flash) to extract a structured script.
     Falls back to a simple rule-based parser if no API key is provided.
     """
-    gemini_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    gemini_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if gemini_key:
         client = genai.Client(api_key=gemini_key)
         response = client.models.generate_content(
