@@ -3,6 +3,10 @@ import json
 import os
 import re
 import tempfile
+
+from dotenv import load_dotenv
+
+load_dotenv()  # load .env file into environment
 from pathlib import Path
 from typing import Optional
 
