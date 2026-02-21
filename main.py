@@ -1,4 +1,5 @@
 import asyncio
+import io
 import json
 import os
 import re
@@ -163,39 +164,64 @@ PITCH_MAP = {"low":  "-8Hz", "normal": "+0Hz", "high": "+8Hz"}
 #  STEP 3: Generate audio for each segment
 # ─────────────────────────────────────────────
 
+def _tts_segment_sync(text: str, voice: str, rate: str, pitch: str, output_path: str):
+    """
+    Generate audio using edge-tts sync API.
+    Runs outside the main event loop to avoid NoAudioReceived in Streamlit/FastAPI.
+    Falls back to minimal params if rate/pitch cause issues.
+    """
+    import edge_tts.exceptions as edge_exc
+
+    rate_val = RATE_MAP.get(rate, "+0%")
+    pitch_val = PITCH_MAP.get(pitch, "+0Hz")
+
+    def _run(use_prosody: bool):
+        if use_prosody:
+            comm = edge_tts.Communicate(text=text, voice=voice, rate=rate_val, pitch=pitch_val)
+        else:
+            comm = edge_tts.Communicate(text=text, voice=voice)
+        with open(output_path, "wb") as f:
+            for chunk in comm.stream_sync():
+                if chunk["type"] == "audio":
+                    f.write(chunk["data"])
+
+    try:
+        _run(use_prosody=True)
+    except edge_exc.NoAudioReceived:
+        _run(use_prosody=False)  # Retry with defaults only
+
+
 async def _tts_segment(text: str, voice: str, rate: str, pitch: str, output_path: str):
-    """Generate a single audio file using edge-tts."""
-    communicate = edge_tts.Communicate(
-        text=text,
-        voice=voice,
-        rate=RATE_MAP.get(rate, "+0%"),
-        pitch=PITCH_MAP.get(pitch, "+0Hz"),
-    )
-    await communicate.save(output_path)
+    """Generate a single audio file using edge-tts (runs in thread to avoid event-loop conflicts)."""
+    await asyncio.to_thread(_tts_segment_sync, text, voice, rate, pitch, output_path)
 
 
 async def generate_audio_segments(script: list[dict], tmp_dir: str) -> list[str]:
-    """
-    Generate all audio segments concurrently and return ordered file paths.
-    """
     tasks = []
     paths = []
 
     for i, seg in enumerate(script):
-        voice   = VOICE_PROFILES.get(seg.get("speaker_profile", "narrator_neutral"), VOICE_PROFILES["narrator_neutral"])
-        rate    = seg.get("rate",  "normal")
-        pitch   = seg.get("pitch", "normal")
-        text    = seg.get("text",  "").strip()
-        out     = os.path.join(tmp_dir, f"seg_{i:04d}.mp3")
-        paths.append(out)
-
+        voice = VOICE_PROFILES.get(seg.get("speaker_profile", "narrator_neutral"), VOICE_PROFILES["narrator_neutral"])
+        rate = seg.get("rate", "normal")
+        pitch = seg.get("pitch", "normal")
+        text = seg.get("text", "").strip()
+        
         if text:
+            out = os.path.join(tmp_dir, f"seg_{i:04d}.mp3")
+            paths.append(out)
             tasks.append(_tts_segment(text, voice, rate, pitch, out))
-            print(f"  [{i+1}/{len(script)}] {seg['speaker']:<20} → {voice}")
+            print(f"  [{i+1}/{len(script)}] {seg['speaker']:<15} -> {voice}")
         else:
-            paths[-1] = None  # skip empty segments
+            paths.append(None)
 
+    # Wait for ALL files to be written to disk
     await asyncio.gather(*tasks)
+    
+    # Critical: Verify files exist and have size > 0
+    for p in paths:
+        if p and (not os.path.exists(p) or os.path.getsize(p) == 0):
+            print(f"⚠️ Warning: Segment {p} is empty or missing.")
+            
     return paths
 
 
@@ -259,14 +285,20 @@ def run_narrator_agent(
     if len(script) > 8:
         print(f"   ... and {len(script) - 8} more segments.\n")
 
-    # ── 2. Generate audio ───────────────────────────────────
-    print("\n🎙  Generating audio segments with Edge TTS...")
-    with tempfile.TemporaryDirectory() as tmp_dir:
+    # -- 2. & 3. Generate and Stitch --
+    print("\n🎙 Generating audio segments...")
+    
+    # Create a persistent temp dir for the duration of this function
+    tmp_dir = tempfile.mkdtemp() 
+    try:
         segment_paths = asyncio.run(generate_audio_segments(script, tmp_dir))
-
-        # ── 3. Stitch ───────────────────────────────────────
+        
         print("\n🎧 Stitching into final MP3...")
         stitch_audio(segment_paths, output_path, pause_between_speakers_ms)
+    finally:
+        # Clean up manually after stitching is DONE
+        import shutil
+        shutil.rmtree(tmp_dir)
 
     print("\n🎉 Done! Your narration is ready:")
     print(f"   → {os.path.abspath(output_path)}\n")
