@@ -191,12 +191,23 @@ def _tts_segment_sync(text: str, voice: str, rate: str, pitch: str, output_path:
         _run(use_prosody=False)  # Retry with defaults only
 
 
-async def _tts_segment(text: str, voice: str, rate: str, pitch: str, output_path: str):
-    """Generate a single audio file using edge-tts (runs in thread to avoid event-loop conflicts)."""
-    await asyncio.to_thread(_tts_segment_sync, text, voice, rate, pitch, output_path)
+TTS_CONCURRENCY = 3   # Limit parallel edge-tts requests to avoid throttling/hangs
+TTS_TIMEOUT_SEC = 90  # Max seconds per segment before giving up (avoids infinite hang)
+
+
+async def _tts_segment(
+    text: str, voice: str, rate: str, pitch: str, output_path: str, semaphore: asyncio.Semaphore
+):
+    """Generate a single audio file using edge-tts (runs in thread, limited concurrency)."""
+    async with semaphore:
+        await asyncio.wait_for(
+            asyncio.to_thread(_tts_segment_sync, text, voice, rate, pitch, output_path),
+            timeout=TTS_TIMEOUT_SEC,
+        )
 
 
 async def generate_audio_segments(script: list[dict], tmp_dir: str) -> list[str]:
+    semaphore = asyncio.Semaphore(TTS_CONCURRENCY)
     tasks = []
     paths = []
 
@@ -209,7 +220,7 @@ async def generate_audio_segments(script: list[dict], tmp_dir: str) -> list[str]
         if text:
             out = os.path.join(tmp_dir, f"seg_{i:04d}.mp3")
             paths.append(out)
-            tasks.append(_tts_segment(text, voice, rate, pitch, out))
+            tasks.append(_tts_segment(text, voice, rate, pitch, out, semaphore))
             print(f"  [{i+1}/{len(script)}] {seg['speaker']:<15} -> {voice}")
         else:
             paths.append(None)
