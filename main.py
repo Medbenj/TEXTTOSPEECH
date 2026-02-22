@@ -3,6 +3,7 @@ import io
 import json
 import os
 import re
+import shutil
 import tempfile
 
 from dotenv import load_dotenv
@@ -14,6 +15,23 @@ from typing import Optional
 from google import genai
 import edge_tts
 from pydub import AudioSegment
+
+# ─────────────────────────────────────────────
+#  ENVIRONMENT CHECK
+# ─────────────────────────────────────────────
+
+def _check_ffmpeg() -> None:
+    """Ensure FFmpeg is available (required by pydub for stitching)."""
+    if shutil.which("ffmpeg"):
+        return
+    msg = (
+        "FFmpeg is required but not found. Pydub needs it to stitch audio segments.\n"
+        "  Windows: winget install FFmpeg  OR  choco install ffmpeg\n"
+        "  Or download from: https://ffmpeg.org/download.html\n"
+        "  Add FFmpeg's bin folder to your system PATH."
+    )
+    raise RuntimeError(msg)
+
 
 # ─────────────────────────────────────────────
 #  VOICE LIBRARY  (Edge TTS — free, no API key)
@@ -283,6 +301,8 @@ def run_narrator_agent(
     print("  AI NARRATOR AGENT")
     print("=" * 55)
 
+    _check_ffmpeg()
+
     # ── 1. Analyze ──────────────────────────────────────────
     print("\n📖 Analyzing text and identifying speakers...")
     script = analyze_text(input_text, api_key=gemini_api_key)
@@ -307,9 +327,7 @@ def run_narrator_agent(
         print("\n🎧 Stitching into final MP3...")
         stitch_audio(segment_paths, output_path, pause_between_speakers_ms)
     finally:
-        # Clean up manually after stitching is DONE
-        import shutil
-        shutil.rmtree(tmp_dir)
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
     print("\n🎉 Done! Your narration is ready:")
     print(f"   → {os.path.abspath(output_path)}\n")
