@@ -21,14 +21,30 @@ from pydub import AudioSegment
 # ─────────────────────────────────────────────
 
 def _check_ffmpeg() -> None:
-    """Ensure FFmpeg is available (required by pydub for stitching)."""
+    """
+    Ensure FFmpeg is available for pydub (stitching audio).
+    Uses system FFmpeg if in PATH; otherwise falls back to imageio-ffmpeg's bundled binary.
+    """
     if shutil.which("ffmpeg"):
         return
+
+    try:
+        import imageio_ffmpeg
+
+        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+        if ffmpeg_exe and os.path.isfile(ffmpeg_exe):
+            ffmpeg_dir = os.path.dirname(ffmpeg_exe)
+            path_sep = os.pathsep
+            os.environ["PATH"] = ffmpeg_dir + path_sep + os.environ.get("PATH", "")
+            return
+    except Exception:
+        pass
+
     msg = (
         "FFmpeg is required but not found. Pydub needs it to stitch audio segments.\n"
-        "  Windows: winget install FFmpeg  OR  choco install ffmpeg\n"
-        "  Or download from: https://ffmpeg.org/download.html\n"
-        "  Add FFmpeg's bin folder to your system PATH."
+        "  Option 1: pip install imageio-ffmpeg  (provides bundled FFmpeg)\n"
+        "  Option 2: winget install FFmpeg  or  choco install ffmpeg\n"
+        "  Option 3: Download from https://ffmpeg.org/download.html and add to PATH."
     )
     raise RuntimeError(msg)
 
