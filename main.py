@@ -2,9 +2,6 @@ import json
 import os
 import re
 import wave
-import struct
-import tempfile
-import shutil
 from typing import Optional
 
 import numpy as np
