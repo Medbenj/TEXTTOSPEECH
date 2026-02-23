@@ -37,7 +37,7 @@ VOICE_PROFILES = {
     "child":            "af_nicole",
 }
 
-SPEED_MAP = {"slow": 0.75, "normal": 1.0, "fast": 1.25}
+SPEED_MAP = {"slow": 0.8, "normal": 1.0, "fast": 1.2}
 
 # Kokoro sample rate is always 24000 Hz
 SAMPLE_RATE = 24000
