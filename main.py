@@ -1,34 +1,47 @@
-import asyncio
 import json
 import os
 import re
-import shutil
-import subprocess
+import wave
+import struct
 import tempfile
+import shutil
 from typing import Optional
 
+import numpy as np
 from dotenv import load_dotenv
 load_dotenv()
 
 from google import genai
-import edge_tts
+from kokoro import KPipeline
 
 
 # ─────────────────────────────────────────────
-#  VOICE LIBRARY  (Edge TTS — free, no API key)
+#  KOKORO VOICE PROFILES
+#  Full list: https://huggingface.co/hexgrad/Kokoro-82M
+#
+#  American Female : af_heart, af_bella, af_nicole, af_sarah, af_sky
+#  American Male   : am_adam, am_michael
+#  British Female  : bf_emma, bf_isabella
+#  British Male    : bm_george, bm_lewis
 # ─────────────────────────────────────────────
 VOICE_PROFILES = {
-    "narrator_neutral": "en-US-AriaNeural",
-    "narrator_male":    "en-US-GuyNeural",
-    "narrator_female":  "en-US-JennyNeural",
-    "male_young":       "en-US-ChristopherNeural",
-    "male_old":         "en-US-EricNeural",
-    "male_gruff":       "en-GB-RyanNeural",
-    "female_young":     "en-US-SaraNeural",
-    "female_old":       "en-US-MichelleNeural",
-    "female_warm":      "en-US-CoraNeural",
-    "child":            "en-US-AnaNeural",
+    "narrator_neutral": "af_sarah",
+    "narrator_male":    "am_michael",
+    "narrator_female":  "af_bella",
+    "male_young":       "am_adam",
+    "male_old":         "am_michael",
+    "male_gruff":       "bm_george",
+    "female_young":     "af_sky",
+    "female_old":       "bf_emma",
+    "female_warm":      "af_heart",
+    "child":            "af_nicole",
 }
+
+SPEED_MAP = {"slow": 0.75, "normal": 1.0, "fast": 1.25}
+
+# Kokoro sample rate is always 24000 Hz
+SAMPLE_RATE = 24000
+
 
 # ─────────────────────────────────────────────
 #  STEP 1: Analyze text with Gemini
@@ -48,6 +61,7 @@ For each segment identify:
     female_young | female_old | female_warm | child
 - "rate": speaking rate adjustment, one of: "slow" | "normal" | "fast"
 - "pitch": pitch adjustment: "low" | "normal" | "high"
+  (note: Kokoro does not support pitch shifting — this field is stored but ignored)
 
 Rules:
 - Split the text into meaningful segments. Each new speaker = new segment.
@@ -92,15 +106,15 @@ def _basic_parser(text: str) -> list[dict]:
                 r'(?:said|asked|replied|shouted|whispered|cried)\s+(\w+)|(\w+)\s+(?:said|asked|replied|shouted|whispered|cried)',
                 non_quote, re.IGNORECASE
             )
-            speaker = (speaker_match.group(1) or speaker_match.group(2)).capitalize() if speaker_match else f"Character_{len(speaker_counter) + 1}"
-
+            speaker = (
+                (speaker_match.group(1) or speaker_match.group(2)).capitalize()
+                if speaker_match else f"Character_{len(speaker_counter) + 1}"
+            )
             if speaker not in speaker_counter:
                 speaker_counter[speaker] = len(speaker_counter)
-
             if non_quote:
                 segments.append({"speaker": "NARRATOR", "text": non_quote,
                                   "speaker_profile": "narrator_neutral", "rate": "normal", "pitch": "normal"})
-
             profile_options = ["male_young", "female_young", "male_old", "female_warm", "male_gruff"]
             profile = profile_options[speaker_counter[speaker] % len(profile_options)]
             for quote in quotes:
@@ -113,170 +127,137 @@ def _basic_parser(text: str) -> list[dict]:
 
 
 # ─────────────────────────────────────────────
-#  STEP 2: Rate / pitch maps
+#  STEP 2: Load Kokoro pipeline (cached)
 # ─────────────────────────────────────────────
 
-RATE_MAP  = {"slow": "-20%", "normal": "+0%", "fast": "+25%"}
-PITCH_MAP = {"low":  "-8Hz", "normal": "+0Hz", "high": "+8Hz"}
+_pipeline_cache: dict[str, KPipeline] = {}
+
+def _get_pipeline(lang_code: str = "a") -> KPipeline:
+    """
+    lang_code: 'a' = American English, 'b' = British English
+    Pipelines are cached so the model loads only once per language.
+    """
+    if lang_code not in _pipeline_cache:
+        print(f"   Loading Kokoro model (lang='{lang_code}')...")
+        _pipeline_cache[lang_code] = KPipeline(lang_code=lang_code)
+    return _pipeline_cache[lang_code]
+
+
+def _voice_lang(voice: str) -> str:
+    """Infer lang_code from voice prefix: af/am → 'a', bf/bm → 'b'."""
+    return "b" if voice.startswith("b") else "a"
 
 
 # ─────────────────────────────────────────────
-#  STEP 3: Generate audio segments
+#  STEP 3: Generate audio — fully local,
+#          returns numpy float32 arrays
 # ─────────────────────────────────────────────
 
-def _tts_segment_sync(text: str, voice: str, rate: str, pitch: str, output_path: str):
-    import edge_tts.exceptions as edge_exc
+def _generate_segment(text: str, voice: str, speed: float) -> np.ndarray:
+    """
+    Generate audio for one text segment using Kokoro.
+    Returns a float32 numpy array at SAMPLE_RATE Hz.
+    """
+    lang = _voice_lang(voice)
+    pipeline = _get_pipeline(lang)
 
-    def _write(comm):
-        with open(output_path, "wb") as f:
-            for chunk in comm.stream_sync():
-                if chunk["type"] == "audio":
-                    f.write(chunk["data"])
-    try:
-        _write(edge_tts.Communicate(text=text, voice=voice, rate=RATE_MAP.get(rate, "+0%"), pitch=PITCH_MAP.get(pitch, "+0Hz")))
-    except edge_exc.NoAudioReceived:
-        _write(edge_tts.Communicate(text=text, voice=voice))
+    chunks = []
+    for _, _, audio in pipeline(text, voice=voice, speed=speed):
+        if audio is not None and len(audio) > 0:
+            chunks.append(audio)
 
+    if not chunks:
+        raise RuntimeError(f"Kokoro returned no audio for: {text[:50]!r}")
 
-TTS_CONCURRENCY = 3
-TTS_TIMEOUT_SEC = 90
-
-
-async def _tts_segment(text, voice, rate, pitch, output_path, semaphore):
-    async with semaphore:
-        await asyncio.wait_for(
-            asyncio.to_thread(_tts_segment_sync, text, voice, rate, pitch, output_path),
-            timeout=TTS_TIMEOUT_SEC,
-        )
+    return np.concatenate(chunks)
 
 
-async def generate_audio_segments(script: list[dict], tmp_dir: str) -> list[Optional[str]]:
-    semaphore = asyncio.Semaphore(TTS_CONCURRENCY)
-    tasks = []
-    paths: list[Optional[str]] = []
+def generate_audio_segments(script: list[dict]) -> list[Optional[np.ndarray]]:
+    """
+    Generate audio for all segments. Returns list of numpy arrays (or None for empty segments).
+    Runs synchronously — Kokoro is local CPU/GPU inference, no async needed.
+    """
+    results: list[Optional[np.ndarray]] = []
 
     for i, seg in enumerate(script):
-        voice = VOICE_PROFILES.get(seg.get("speaker_profile", "narrator_neutral"), VOICE_PROFILES["narrator_neutral"])
+        voice = VOICE_PROFILES.get(
+            seg.get("speaker_profile", "narrator_neutral"),
+            VOICE_PROFILES["narrator_neutral"]
+        )
+        speed = SPEED_MAP.get(seg.get("rate", "normal"), 1.0)
         text  = seg.get("text", "").strip()
-        if text:
-            out = os.path.join(tmp_dir, f"seg_{i:04d}.mp3")
-            paths.append(out)
-            tasks.append(_tts_segment(text, voice, seg.get("rate", "normal"), seg.get("pitch", "normal"), out, semaphore))
-            print(f"  [{i+1}/{len(script)}] {seg['speaker']:<15} -> {voice}")
-        else:
-            paths.append(None)
 
-    await asyncio.gather(*tasks)
+        print(f"  [{i+1}/{len(script)}] {seg['speaker']:<15} -> {voice}  (speed={speed})")
 
-    for p in paths:
-        if p and (not os.path.exists(p) or os.path.getsize(p) == 0):
-            print(f"⚠️  Warning: {p} is empty or missing.")
+        if not text:
+            results.append(None)
+            continue
 
-    return paths
+        try:
+            audio = _generate_segment(text, voice, speed)
+            results.append(audio)
+        except Exception as e:
+            print(f"    ⚠️  Segment {i+1} failed: {e}")
+            results.append(None)
+
+    return results
 
 
 # ─────────────────────────────────────────────
-#  STEP 4: Stitch audio
-#
-#  Strategy waterfall — fastest/safest first:
-#  1. Raw MP3 byte concat  (pure Python, no tools, always works)
-#  2. FFmpeg subprocess    (if installed, adds silence gaps)
-#  pydub is intentionally skipped — it hangs on many Windows setups
+#  STEP 4: Stitch and export
+#  Pure numpy + built-in wave module.
+#  No ffmpeg. No pydub. No external tools.
 # ─────────────────────────────────────────────
 
-def _find_ffmpeg() -> Optional[str]:
-    found = shutil.which("ffmpeg")
-    if found:
-        return found
-    try:
-        import imageio_ffmpeg
-        exe = imageio_ffmpeg.get_ffmpeg_exe()
-        if exe and os.path.isfile(exe):
-            return exe
-    except Exception:
-        pass
-    return None
+def _make_silence(duration_ms: int) -> np.ndarray:
+    """Return a numpy array of silence at SAMPLE_RATE."""
+    n_samples = int(SAMPLE_RATE * duration_ms / 1000)
+    return np.zeros(n_samples, dtype=np.float32)
 
 
-def _stitch_with_ffmpeg(valid_paths: list[str], output_path: str, pause_ms: int, ffmpeg_bin: str) -> bool:
+def stitch_and_export(
+    audio_segments: list[Optional[np.ndarray]],
+    output_path: str,
+    pause_ms: int = 400,
+) -> str:
     """
-    Use ffmpeg subprocess directly with a concat demuxer file.
-    Returns True on success, False on any failure.
-    Uses a 30-second timeout to prevent hanging.
+    Concatenate all audio segments with silence gaps,
+    then write a 16-bit PCM WAV using Python's built-in wave module.
     """
-    try:
-        tmp_dir = tempfile.mkdtemp()
-        list_file = os.path.join(tmp_dir, "segments.txt")
-
-        # Build the concat list, inserting a silent MP3 between each segment
-        # Generate silence segment once
-        silence_path = os.path.join(tmp_dir, "silence.mp3")
-        silence_cmd = [
-            ffmpeg_bin, "-y",
-            "-f", "lavfi", "-i", f"anullsrc=r=24000:cl=mono",
-            "-t", str(pause_ms / 1000),
-            "-q:a", "9", "-acodec", "libmp3lame",
-            silence_path
-        ]
-        result = subprocess.run(silence_cmd, capture_output=True, timeout=15)
-        has_silence = result.returncode == 0 and os.path.exists(silence_path)
-
-        with open(list_file, "w") as f:
-            for i, p in enumerate(valid_paths):
-                f.write(f"file '{p}'\n")
-                if has_silence and i < len(valid_paths) - 1:
-                    f.write(f"file '{silence_path}'\n")
-
-        concat_cmd = [
-            ffmpeg_bin, "-y",
-            "-f", "concat", "-safe", "0",
-            "-i", list_file,
-            "-c", "copy",
-            output_path
-        ]
-        result = subprocess.run(concat_cmd, capture_output=True, timeout=30)
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-
-        if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-            return True
-        else:
-            print(f"⚠  FFmpeg concat failed: {result.stderr.decode()[:200]}")
-            return False
-    except subprocess.TimeoutExpired:
-        print("⚠  FFmpeg timed out. Falling back to raw concat.")
-        return False
-    except Exception as e:
-        print(f"⚠  FFmpeg error: {e}")
-        return False
-
-
-def stitch_audio(segment_paths: list[Optional[str]], output_path: str, pause_ms: int = 400) -> str:
-    valid = [p for p in segment_paths if p and os.path.exists(p) and os.path.getsize(p) > 0]
+    valid = [a for a in audio_segments if a is not None and len(a) > 0]
     if not valid:
         raise RuntimeError("No valid audio segments to stitch.")
 
-    print(f"   Stitching {len(valid)} segments...")
+    silence = _make_silence(pause_ms)
+    pieces  = []
+    for i, audio in enumerate(valid):
+        pieces.append(audio)
+        if i < len(valid) - 1:
+            pieces.append(silence)
 
-    # ── Strategy 1: FFmpeg via subprocess (with timeout, no pydub) ──
-    ffmpeg_bin = _find_ffmpeg()
-    if ffmpeg_bin:
-        print(f"   FFmpeg found at: {ffmpeg_bin}")
-        if _stitch_with_ffmpeg(valid, output_path, pause_ms, ffmpeg_bin):
-            size_kb = os.path.getsize(output_path) / 1024
-            print(f"\n✅ Exported MP3 (ffmpeg): {output_path}  ({size_kb:.0f} KB)")
-            return output_path
-        print("   Falling back to raw MP3 concat...")
+    combined = np.concatenate(pieces)
 
-    # ── Strategy 2: Raw MP3 byte concat (always works, no tools) ────
-    print("   Using raw MP3 concatenation (pure Python).")
-    with open(output_path, "wb") as out_f:
-        for p in valid:
-            with open(p, "rb") as f:
-                out_f.write(f.read())
+    # Clamp to [-1, 1] and convert to 16-bit PCM
+    combined = np.clip(combined, -1.0, 1.0)
+    pcm = (combined * 32767).astype(np.int16)
 
-    size_kb = os.path.getsize(output_path) / 1024
-    print(f"\n✅ Exported MP3 (raw concat): {output_path}  ({size_kb:.0f} KB)")
-    return output_path
+    # Determine output format
+    if output_path.lower().endswith(".wav"):
+        wav_path = output_path
+    else:
+        # Write WAV first, note it in output (WAV is lossless and universally supported)
+        wav_path = output_path.rsplit(".", 1)[0] + ".wav"
+
+    with wave.open(wav_path, "wb") as wf:
+        wf.setnchannels(1)       # mono
+        wf.setsampwidth(2)       # 16-bit = 2 bytes
+        wf.setframerate(SAMPLE_RATE)
+        wf.writeframes(pcm.tobytes())
+
+    duration_s = len(combined) / SAMPLE_RATE
+    size_kb    = os.path.getsize(wav_path) / 1024
+    print(f"\n✅ Exported WAV: {wav_path}  ({duration_s:.1f}s, {size_kb:.0f} KB)")
+    return wav_path
 
 
 # ─────────────────────────────────────────────
@@ -285,12 +266,19 @@ def stitch_audio(segment_paths: list[Optional[str]], output_path: str, pause_ms:
 
 def run_narrator_agent(
     input_text: str,
-    output_path: str = "output_narration.mp3",
+    output_path: str = "output_narration.wav",
     gemini_api_key: Optional[str] = None,
     pause_between_speakers_ms: int = 400,
 ) -> str:
+    """
+    Full pipeline: text → Gemini analysis → Kokoro TTS → single WAV file.
+
+    100% local inference — no network calls for TTS, no ffmpeg, no pydub.
+    Requires:  pip install kokoro numpy
+    Optional:  pip install google-genai python-dotenv  (for Gemini analysis)
+    """
     print("=" * 55)
-    print("  AI NARRATOR AGENT")
+    print("  AI NARRATOR AGENT  (Kokoro TTS)")
     print("=" * 55)
 
     # ── 1. Analyze ──────────────────────────────────────────
@@ -306,16 +294,12 @@ def run_narrator_agent(
         print(f"   ... and {len(script) - 8} more segments.\n")
 
     # ── 2. Generate ─────────────────────────────────────────
-    print("\n🎙  Generating audio segments...")
-    tmp_dir = tempfile.mkdtemp()
-    try:
-        segment_paths = asyncio.run(generate_audio_segments(script, tmp_dir))
+    print("\n🎙  Generating audio segments (local Kokoro inference)...")
+    audio_segments = generate_audio_segments(script)
 
-        # ── 3. Stitch ────────────────────────────────────────
-        print("\n🎧 Stitching into final MP3...")
-        final_path = stitch_audio(segment_paths, output_path, pause_between_speakers_ms)
-    finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+    # ── 3. Stitch & export ───────────────────────────────────
+    print("\n🎧 Stitching into final WAV...")
+    final_path = stitch_and_export(audio_segments, output_path, pause_between_speakers_ms)
 
     print("\n🎉 Done! Your narration is ready:")
     print(f"   → {os.path.abspath(final_path)}\n")
@@ -352,6 +336,6 @@ if __name__ == "__main__":
 
     run_narrator_agent(
         input_text=sample_text,
-        output_path="my_story.mp3",
+        output_path="my_story.wav",
         # gemini_api_key=os.getenv("GEMINI_API_KEY"),
     )
