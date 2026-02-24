@@ -8,6 +8,32 @@ import numpy as np
 from dotenv import load_dotenv
 load_dotenv()
 
+# Compatibility patch: newer `phonemizer` releases don't expose
+# a `set_data_path` classmethod on `EspeakWrapper` while some
+# packages (misaki/kokoro) call it at import time. Add a small
+# shim so those imports succeed.
+try:
+    import importlib, pathlib
+    espeak_wrapper = importlib.import_module("phonemizer.backend.espeak.wrapper")
+    Esw = espeak_wrapper.EspeakWrapper
+    if not hasattr(Esw, "set_data_path"):
+        def _set_data_path(cls, path):
+            cls._FORCED_DATA_PATH = pathlib.Path(path)
+        Esw.set_data_path = classmethod(_set_data_path)
+        # prefer forced data path when available
+        orig_data_path = Esw.data_path.fget if isinstance(getattr(Esw, 'data_path', None), property) else None
+        def _data_path(self):
+            if getattr(Esw, "_FORCED_DATA_PATH", None):
+                return Esw._FORCED_DATA_PATH
+            if orig_data_path:
+                return orig_data_path(self)
+            return getattr(self, '_data_path', None)
+        Esw.data_path = property(_data_path)
+except Exception:
+    # If anything goes wrong here, fall back to normal import and let
+    # kokoro raise the original error so the user can see it.
+    pass
+
 from google import genai
 from kokoro import KPipeline
 
