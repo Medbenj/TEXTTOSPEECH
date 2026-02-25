@@ -1,8 +1,19 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 import json
 import os
 import re
+import sys
 import wave
 from typing import Optional
+
+# Ensure UTF-8 encoding for output (especially important on Windows)
+if sys.stdout.encoding != 'utf-8':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+if sys.stderr.encoding != 'utf-8':
+    import io
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 import numpy as np
 from dotenv import load_dotenv
@@ -13,7 +24,7 @@ load_dotenv()
 # packages (misaki/kokoro) call it at import time. Add a small
 # shim so those imports succeed.
 #
-# On Windows, also try to locate espeak-ng data from installed packages.
+# On Windows, also explicitly set espeak-ng paths using espeakng_loader
 try:
     import importlib
     import pathlib
@@ -35,39 +46,22 @@ try:
             return getattr(self, '_data_path', None)
         Esw.data_path = property(_data_path)
     
-    # Windows-specific: try to locate espeak-ng data directory
+    # Windows-specific: Set espeak-ng paths from espeakng_loader
     if sys.platform == "win32":
-        data_path = None
-        
-        # Try espeakng package first
         try:
-            import espeakng as espeakng_module
-            espeakng_dir = pathlib.Path(espeakng_module.__file__).parent
-            candidate = espeakng_dir / "data"
-            if candidate.exists():
-                data_path = candidate
+            import espeakng_loader
+            data_path = espeakng_loader.get_data_path()
+            if data_path:
+                # Set it on the EspeakWrapper
+                Esw.set_data_path(str(data_path))
+                os.environ["ESPEAK_DATA_PATH"] = str(data_path)
         except (ImportError, Exception):
             pass
-        
-        # Try espeakng_loader package
-        if not data_path:
-            try:
-                import espeakng_loader
-                loader_dir = pathlib.Path(espeakng_loader.__file__).parent
-                candidate = loader_dir / "espeak-ng" / "share" / "espeak-ng-data"
-                if candidate.exists():
-                    data_path = candidate
-            except (ImportError, Exception):
-                pass
-        
-        if data_path:
-            Esw.set_data_path(str(data_path))
-            os.environ["ESPEAK_DATA_PATH"] = str(data_path)
 
 except Exception as e:
     # If anything goes wrong here, fall back to normal import and let
     # kokoro raise the original error so the user can see it.
-    print(f"Warning: espeak-ng compatibility patch encountered an issue: {e}")
+    print(f"Warning: espeak-ng compatibility patch encountered an issue: {e}", file=sys.stderr)
     pass
 
 from google import genai
@@ -147,7 +141,7 @@ def analyze_text(text: str, api_key: Optional[str] = None) -> list[dict]:
         raw = re.sub(r"^```json\s*|^```\s*|\s*```$", "", raw, flags=re.MULTILINE).strip()
         return json.loads(raw)
     else:
-        print("⚠  No GEMINI_API_KEY/GOOGLE_API_KEY found. Using basic rule-based parser.")
+        print("[WARNING] No GEMINI_API_KEY/GOOGLE_API_KEY found. Using basic rule-based parser.")
         print("   For best results, set your Gemini API key.\n")
         return _basic_parser(text)
 
@@ -256,7 +250,7 @@ def generate_audio_segments(script: list[dict]) -> list[Optional[np.ndarray]]:
             audio = _generate_segment(text, voice, speed)
             results.append(audio)
         except Exception as e:
-            print(f"    ⚠️  Segment {i+1} failed: {e}")
+            print(f"    [WARNING] Segment {i+1} failed: {e}")
             results.append(None)
 
     return results
@@ -341,11 +335,11 @@ def run_narrator_agent(
     print("=" * 55)
 
     # ── 1. Analyze ──────────────────────────────────────────
-    print("\n📖 Analyzing text and identifying speakers...")
+    print("\n[ANALYSIS] Analyzing text and identifying speakers...")
     script = analyze_text(input_text, api_key=gemini_api_key)
     print(f"   Found {len(script)} segments across {len({s['speaker'] for s in script})} speakers.\n")
 
-    print("📝 Script preview:")
+    print("[SCRIPT] Script preview:")
     for seg in script[:8]:
         preview = seg['text'][:60].replace('\n', ' ')
         print(f"   [{seg['speaker']:<15}] {preview}...")
@@ -353,7 +347,7 @@ def run_narrator_agent(
         print(f"   ... and {len(script) - 8} more segments.\n")
 
     # ── 2. Generate ─────────────────────────────────────────
-    print("\n🎙  Generating audio segments (local Kokoro inference)...")
+    print("\n[AUDIO] Generating audio segments (local Kokoro inference)...")
     audio_segments = generate_audio_segments(script)
 
     # ── 3. Stitch & export ───────────────────────────────────
