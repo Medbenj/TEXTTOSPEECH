@@ -12,8 +12,13 @@ load_dotenv()
 # a `set_data_path` classmethod on `EspeakWrapper` while some
 # packages (misaki/kokoro) call it at import time. Add a small
 # shim so those imports succeed.
+#
+# On Windows, also try to locate espeak-ng data from installed packages.
 try:
-    import importlib, pathlib
+    import importlib
+    import pathlib
+    import sys
+    
     espeak_wrapper = importlib.import_module("phonemizer.backend.espeak.wrapper")
     Esw = espeak_wrapper.EspeakWrapper
     if not hasattr(Esw, "set_data_path"):
@@ -29,9 +34,40 @@ try:
                 return orig_data_path(self)
             return getattr(self, '_data_path', None)
         Esw.data_path = property(_data_path)
-except Exception:
+    
+    # Windows-specific: try to locate espeak-ng data directory
+    if sys.platform == "win32":
+        data_path = None
+        
+        # Try espeakng package first
+        try:
+            import espeakng as espeakng_module
+            espeakng_dir = pathlib.Path(espeakng_module.__file__).parent
+            candidate = espeakng_dir / "data"
+            if candidate.exists():
+                data_path = candidate
+        except (ImportError, Exception):
+            pass
+        
+        # Try espeakng_loader package
+        if not data_path:
+            try:
+                import espeakng_loader
+                loader_dir = pathlib.Path(espeakng_loader.__file__).parent
+                candidate = loader_dir / "espeak-ng" / "share" / "espeak-ng-data"
+                if candidate.exists():
+                    data_path = candidate
+            except (ImportError, Exception):
+                pass
+        
+        if data_path:
+            Esw.set_data_path(str(data_path))
+            os.environ["ESPEAK_DATA_PATH"] = str(data_path)
+
+except Exception as e:
     # If anything goes wrong here, fall back to normal import and let
     # kokoro raise the original error so the user can see it.
+    print(f"Warning: espeak-ng compatibility patch encountered an issue: {e}")
     pass
 
 from google import genai
