@@ -115,6 +115,13 @@ For each segment identify:
 - "rate": speaking rate adjustment, one of: "slow" | "normal" | "fast"
 - "pitch": pitch adjustment: "low" | "normal" | "high"
   (note: Kokoro does not support pitch shifting — this field is stored but ignored)
+- identify if there is dialogue and who is speaking it, but if unsure, default to "NARRATOR" and "narrator_neutral".
+Use your best judgment to split the text into meaningful segments based on changes in speaker or narration.
+-include dialogue attribution (e.g. "Alice said") when possible to help identify speakers.
+- If the text is purely narration with no dialogue, return a single segment with speaker "N
+ARRATOR" and speaker_profile "narrator_neutral".
+-include emottional tone in speaker_profile when identifiable from the text (e.g. "male_gruff" for a rough, angry male character, "female_warm" for a kind, gentle female character, etc.)
+- For ambiguous cases, use your best judgment to assign speaker profiles based on the content and tone
 
 Rules:
 - Split the text into meaningful segments. Each new speaker = new segment.
