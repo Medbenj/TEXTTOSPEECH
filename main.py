@@ -365,26 +365,13 @@ def run_narrator_agent(
 
 if __name__ == "__main__":
 
-    sample_text = """Ai narrator test.
-    The old lighthouse stood at the edge of the world, battered by wind and salt.
+    sample_text = """This is a simple testing passage to exercise the narrator agent.
+    It includes narration and a little dialogue.
 
-    Thomas wiped the fog from the window and peered into the darkness.
-    "She's coming," he muttered, his voice raw from a night of watching.
+    "Hello," said Alice softly, looking around the quiet room.
+    "Hi there," Bob answered, smiling.
 
-    Elena stepped into the doorway, her coat dripping with rain.
-    "You've been up all night again, haven't you?" she said quietly.
-
-    Thomas turned. He looked older than she remembered.
-    "Someone has to," he replied. "The ships don't stop just because we're tired."
-
-    Elena crossed the room and placed her hand on his shoulder.
-    "The coast guard called. They said the storm will pass by morning."
-
-    He let out a long breath.
-    "It always does," Thomas said. "But morning feels very far away tonight."
-
-    They stood there together, watching the dark water churn below.
-    The light kept turning. The world kept spinning. And the ships, somewhere out there in the deep, found their way home.
+    The narrator described the moment with a calm, neutral tone.
     """
 
     run_narrator_agent(
