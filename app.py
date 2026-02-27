@@ -12,7 +12,7 @@ from pathlib import Path
 import streamlit as st
 from pypdf import PdfReader
 
-from main import run_narrator_agent
+from main import run_narrator_agent, ANALYSIS_PROMPT
 
 # ─────────────────────────────────────────────
 #  PAGE CONFIG
@@ -78,6 +78,11 @@ def main():
         """,
         unsafe_allow_html=True,
     )
+
+    # Show system prompt used for Gemini analysis
+    with st.expander("View internal analysis prompt (for debugging)", expanded=False):
+        st.code(ANALYSIS_PROMPT, language="text")
+
 
     # Initialize session state
     if "generated_audio" not in st.session_state:
