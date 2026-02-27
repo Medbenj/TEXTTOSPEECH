@@ -365,7 +365,7 @@ def run_narrator_agent(
 
 if __name__ == "__main__":
 
-    sample_text = """
+    sample_text = """Ai narrator test.
     The old lighthouse stood at the edge of the world, battered by wind and salt.
 
     Thomas wiped the fog from the window and peered into the darkness.
