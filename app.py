@@ -12,7 +12,7 @@ from pathlib import Path
 import streamlit as st
 from pypdf import PdfReader
 
-from main import run_narrator_agent, ANALYSIS_PROMPT
+from main import run_narrator_agent, ANALYSIS_PROMPT, analyze_text, VOICE_PROFILES
 
 # ─────────────────────────────────────────────
 #  PAGE CONFIG
@@ -166,19 +166,28 @@ def main():
             else:
                 with st.spinner("🤖 Analyzing text and generating audio..."):
                     try:
+                        # analyze text first to show segments
+                        api_key = gemini_key if gemini_key else None
+                        script = analyze_text(st.session_state.input_text, api_key=api_key)
+
+                        st.markdown("**Detected segments:**")
+                        for idx, seg in enumerate(script, start=1):
+                            voice = VOICE_PROFILES.get(seg.get("speaker_profile", "narrator_neutral"))
+                            st.write(f"{idx}. {seg['speaker']} \[{seg.get('speaker_profile')} → {voice}\]: {seg['text'][:100].replace('\n',' ')}")
+
                         # Create temp file for the output
                         with tempfile.NamedTemporaryFile(
                             delete=False, suffix=".wav"
                         ) as tmp_file:
                             output_path = tmp_file.name
 
-                        # Run the narrator agent
-                        api_key = gemini_key if gemini_key else None
+                        # Run the narrator agent with the same script to avoid re-analyzing
                         final_path = run_narrator_agent(
                             input_text=st.session_state.input_text,
                             output_path=output_path,
                             gemini_api_key=api_key,
                             pause_between_speakers_ms=pause_ms,
+                            script=script,
                         )
 
                         # Read the generated audio

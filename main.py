@@ -329,9 +329,14 @@ def run_narrator_agent(
     output_path: str = "output_narration.wav",
     gemini_api_key: Optional[str] = None,
     pause_between_speakers_ms: int = 400,
+    script: Optional[list[dict]] = None,
 ) -> str:
     """
     Full pipeline: text → Gemini analysis → Kokoro TTS → single WAV file.
+
+    If a pre-computed `script` is provided, the analysis step will be
+    skipped and the given script will be used directly. This allows the
+    caller (e.g. a UI) to display or inspect the segments beforehand.
 
     100% local inference — no network calls for TTS, no ffmpeg, no pydub.
     Requires:  pip install kokoro numpy
@@ -342,9 +347,13 @@ def run_narrator_agent(
     print("=" * 55)
 
     # ── 1. Analyze ──────────────────────────────────────────
-    print("\n[ANALYSIS] Analyzing text and identifying speakers...")
-    script = analyze_text(input_text, api_key=gemini_api_key)
-    print(f"   Found {len(script)} segments across {len({s['speaker'] for s in script})} speakers.\n")
+    if script is None:
+        print("\n[ANALYSIS] Analyzing text and identifying speakers...")
+        script = analyze_text(input_text, api_key=gemini_api_key)
+        print(f"   Found {len(script)} segments across {len({s['speaker'] for s in script})} speakers.\n")
+    else:
+        print("\n[ANALYSIS] Using precomputed script (analysis skipped)")
+
 
     print("[SCRIPT] Script preview:")
     for seg in script[:8]:
