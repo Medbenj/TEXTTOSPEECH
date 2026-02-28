@@ -1,22 +1,101 @@
-System Overview
-The agent has three core stages: Analyze → Script → Synthesize
-Stage 1: Text Analysis (LLM)
-Feed the input text to Gemini-2.5-flash with a prompt that extracts:
+# TextToSpeech Project Plan
 
-Characters and speakers — names, gender, age clues, personality traits
-Narrative tone — formal novel, casual article, dramatic story, etc.
-Dialogue vs narration — who says what, and what's just narration
-Emotional cues — anger, sadness, excitement (for TTS emotion tags)
+Current implementation uses a local Python pipeline built around the Bark texttospeech model. The project no longer relies on external TTS providers  everything runs offline once the Bark models are downloaded.
 
-Output is a structured script with speaker metadata and emotion labels.
-Stage 2: Script Structuring
-Transform the labeled text into a voice script with speaker, gender, age, emotional style, and text.
-Stage 3: Voice Synthesis (TTS)
-Use Bark TTS for each segment. Bark supports emotion tags like [laughs], [sighs], [whispers], [shouts], [crying] which Gemini can generate automatically. Runs fully local after initial model download — no network calls during synthesis, no hanging issues.
-Stage 4: Audio Stitching
-Use pure Python byte concatenation to stitch MP3 segments. No pydub, no ffmpeg — completely eliminates hanging problems.
-Full Tech Stack
-Gemini → Script analysis and emotion tagging
-Bark TTS → Local emotional voice synthesis
-Python script → Pure-Python MP3 concatenation
-Streamlit app → User interface
+---
+
+## System Overview
+The agent operates in four sequential stages:
+
+1. **Text analysis**  parse raw input text into segments with speaker metadata using an LLM (Gemini) or a fallback rulebased parser.
+2. **Voice assignment**  map each segment to a Bark voice identifier and optionally adjust speed.
+3. **Audio generation**  synthesize each segment via Bark, returning numpy arrays at 24kHz.
+4. **Stitch & export**  concatenate the clips with configurable silence and write a 16bit PCM WAV using Pythons builtin wave module.
+
+Network access is only required for the optional Gemini API key; all TTS is local with Bark models.
+
+---
+
+## Stage1  Text Analysis
+
+nalyze_text constructs a detailed prompt for gemini-2.5-flash to:
+
+- Identify speakers and label narration or dialogue.
+- Choose a speaker_profile from the predefined set.
+- Suggest speaking ate (slow/normal/fast) and pitch (ignored by Bark).
+- Split into segments at speaker changes or narrative breaks.
+
+A fallback _basic_parser uses regex heuristics if no API key is provided. The output list of dictionaries drives the downstream pipeline.
+
+---
+
+## Stage2  Voice Mapping
+
+Voice profiles now correspond to Bark voices (2/en_speaker_*). Example mapping in VOICE_PROFILES:
+
+`python
+VOICE_PROFILES = {
+     narrator_neutral: v2/en_speaker_1,
+    narrator_male:    v2/en_speaker_2,
+    narrator_female:  v2/en_speaker_3,
+    male_young:       v2/en_speaker_4,
+    male_old:         v2/en_speaker_5,
+    male_gruff:       v2/en_speaker_6,
+    female_young:     v2/en_speaker_7,
+    female_old:       v2/en_speaker_8,
+    female_warm:      v2/en_speaker_9,
+    child:            v2/en_speaker_0,
+}
+`
+
+SPEED_MAP remains available but Bark doesnt support realtime speed adjustment; any rate suggestions are currently ignored (future versions could postprocess with librosa).
+
+---
+
+## Stage3  Bark Synthesis
+
+Bark is initialized lazily via a preload_models() call. _generate_segment simply calls
+
+`python
+from bark import generate_audio, SAMPLE_RATE
+
+...
+
+def _generate_segment(text, voice, speed):
+    return generate_audio(text, voice=voice)
+`
+
+which returns a float32 numpy array at 24000Hz. Errors are caught to allow the pipeline to continue if a segment fails.
+
+---
+
+## Stage4  Stitching & Export
+
+This logic is unchanged from the previous design: silence segments are inserted and the final audio concatenated, clamped, and written out using wave. Output metadata is printed.
+
+---
+
+## Usage & Dependencies
+
+The main function un_narrator_agent now advertises Bark TTS in its header and documentation. Install the required packages using pip install -r requirements.txt or ensure ark and 
+umpy are in pyproject.toml.
+
+Example invocation:
+
+`python
+run_narrator_agent(
+    input_text=sample_text,
+    output_path=my_story.wav,
+    # gemini_api_key=os.getenv(GEMINI_API_KEY),
+)
+`
+
+---
+
+## Notes
+
+- The old Kokoro-specific compatibility patch remains in the code but is no longer necessary and can be removed in a future cleanup.
+- Voice list may change as Bark evolves; users can override VOICE_PROFILES manually or extend them.
+- The Streamlit UI and docs have been updated to reflect Bark usage.
+
+This plan now aligns with the current Barkbased implementation in main.py and related files.
