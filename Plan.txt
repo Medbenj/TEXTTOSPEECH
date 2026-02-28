@@ -1,79 +1,22 @@
 System Overview
 The agent has three core stages: Analyze → Script → Synthesize
 Stage 1: Text Analysis (LLM)
-Feed the input text to an LLM (like Gemini-2.5-flash) with a prompt that extracts:
+Feed the input text to Gemini-2.5-flash with a prompt that extracts:
 
-Characters/speakers — names, gender, age clues, personality traits
+Characters and speakers — names, gender, age clues, personality traits
 Narrative tone — formal novel, casual article, dramatic story, etc.
 Dialogue vs narration — who says what, and what's just narration
+Emotional cues — anger, sadness, excitement (for TTS emotion tags)
 
-Example prompt:
-
-"Analyze this text. Identify every speaker, their likely gender/age/tone, and label each segment as [NARRATOR], [CHARACTER: John - gruff older man], etc."
-
-The output is a structured script — a list of segments with speaker metadata.
-
+Output is a structured script with speaker metadata and emotion labels.
 Stage 2: Script Structuring
-Transform the labeled text into a voice script like:
-json[
-  { "speaker": "narrator", "gender": "neutral", "style": "calm, storytelling", "text": "It was a dark night..." },
-  { "speaker": "John", "gender": "male", "age": "old", "style": "gruff, tired", "text": "I can't do this anymore." },
-  { "speaker": "Sarah", "gender": "female", "style": "anxious, fast-paced", "text": "You have to, John!" }
-]
-```
-
----
-
-### Stage 3: Voice Synthesis (TTS)
-
-For each segment, call a TTS API with the right voice settings.
-Not determined still in testing phase
----
-
-### Full Tech Stack Recommendation
-```
-Input Text
-    ↓
-[Gemini] — Analyze & label speakers + generate structured script
-    ↓
-[Python script] — Assign voice IDs to each character (male/female/old/young)
-    ↓
-[LLM TTS] — Generate audio per segment with matching voice
-    ↓
-[pydub / ffmpeg] — Stitch all audio segments into one final audio file
-    ↓
-Output: podcast-style MP3/WAV
-
-Key Implementation Steps
-1. Speaker-to-voice mapping — Create a mapping like:
-
-Male narrator → ElevenLabs "Adam" voice
-Old gruff man → ElevenLabs "Arnold" voice
-Young woman → ElevenLabs "Rachel" voice
-
-2. SSML / style prompting — ElevenLabs lets you pass "voice settings" (stability, expressiveness) per segment. You can also prefix the text with style hints like "[tired, whispering]" before generating.
-3. Stitching — Use pydub in Python to concatenate audio clips with small pauses between speaker changes.
-
-Minimal Python Pseudocode
-pythonimport anthropic, requests, pydub
-
-# Step 1: Analyze text
-script = claude.analyze_speakers(raw_text)  # returns list of {speaker, text, style}
-
-# Step 2: Assign voices
-voice_map = assign_voices(script)  # maps speaker -> ElevenLabs voice_id
-
-# Step 3: Generate audio
-audio_clips = []
-for segment in script:
-    audio = elevenlabs.tts(
-        text=segment["text"],
-        voice_id=voice_map[segment["speaker"]],
-        stability=0.5,
-        similarity_boost=0.8
-    )
-    audio_clips.append(audio)
-
-# Step 4: Stitch
-final_audio = stitch_audio(audio_clips)
-final_audio.export("output.mp3")
+Transform the labeled text into a voice script with speaker, gender, age, emotional style, and text.
+Stage 3: Voice Synthesis (TTS)
+Use Bark TTS for each segment. Bark supports emotion tags like [laughs], [sighs], [whispers], [shouts], [crying] which Gemini can generate automatically. Runs fully local after initial model download — no network calls during synthesis, no hanging issues.
+Stage 4: Audio Stitching
+Use pure Python byte concatenation to stitch MP3 segments. No pydub, no ffmpeg — completely eliminates hanging problems.
+Full Tech Stack
+Gemini → Script analysis and emotion tagging
+Bark TTS → Local emotional voice synthesis
+Python script → Pure-Python MP3 concatenation
+Streamlit app → User interface
