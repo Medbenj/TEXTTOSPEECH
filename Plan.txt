@@ -1,7 +1,7 @@
 System Overview
 The agent has three core stages: Analyze → Script → Synthesize
 Stage 1: Text Analysis (LLM)
-Feed the input text to an LLM (like Claude or GPT-4) with a prompt that extracts:
+Feed the input text to an LLM (like Gemini-2.5-flash) with a prompt that extracts:
 
 Characters/speakers — names, gender, age clues, personality traits
 Narrative tone — formal novel, casual article, dramatic story, etc.
@@ -26,29 +26,19 @@ json[
 
 ### Stage 3: Voice Synthesis (TTS)
 
-For each segment, call a TTS API with the right voice settings. Best options:
-
-| API | Why it's good |
-|---|---|
-| **ElevenLabs** | Best quality, voice cloning, emotion control, multi-speaker |
-| **OpenAI TTS** | Simple, good quality, 6 preset voices |
-| **Play.ht** | Multi-speaker, realistic, good emotion range |
-| **Google Cloud TTS** | Affordable, wide language support |
-| **Azure Neural TTS** | Strong SSML support for style/emotion |
-
-**ElevenLabs is the closest to NotebookLM quality** — it supports distinct voices per character and even lets you clone voices.
-
+For each segment, call a TTS API with the right voice settings.
+Not determined still in testing phase
 ---
 
 ### Full Tech Stack Recommendation
 ```
 Input Text
     ↓
-[Claude/GPT-4] — Analyze & label speakers + generate structured script
+[Gemini] — Analyze & label speakers + generate structured script
     ↓
 [Python script] — Assign voice IDs to each character (male/female/old/young)
     ↓
-[ElevenLabs API] — Generate audio per segment with matching voice
+[LLM TTS] — Generate audio per segment with matching voice
     ↓
 [pydub / ffmpeg] — Stitch all audio segments into one final audio file
     ↓
