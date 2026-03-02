@@ -444,6 +444,8 @@ if __name__ == "__main__":
 
     It includes narration and a little dialogue.
     
+    The attic was thick with the scent of aged cedar and dust. Sunlight cut through the gloom in a single, sharp beam.
+    
     Bob said, "It's unsettling to think that while we’re in this old dust, machines are learning to think and mimic our souls better than we can ourselves."
     
     Alice replied, "It is scary because if computers start doing everything and dreaming for us, will there be any room left for real people to just be quiet and explore places like this?"
