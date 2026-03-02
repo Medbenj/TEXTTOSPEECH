@@ -1,6 +1,6 @@
 # TextToSpeech Project Plan
 
-Current implementation uses a local Python pipeline built around the StyleTTS2 Studio text‑to‑speech model. The project no longer relies on external TTS providers; everything runs offline once the StyleTTS2 models are downloaded.
+Current implementation uses a local Python pipeline built around the Kokoro texttospeech model. The project no longer relies on external TTS providers; everything runs offline once the Kokoro models are downloaded.
 
 ---
 
@@ -32,7 +32,7 @@ A fallback _basic_parser uses regex heuristics if no API key is provided. The ou
 
 ## Stage2  Voice Mapping
 
-Voice profiles currently correspond to whatever identifiers the StyleTTS2 Studio package exposes (2/en_speaker_*). Example mapping in VOICE_PROFILES:
+Voice profiles now correspond to Kokoro voices (American/British speakers). Example mapping in VOICE_PROFILES: (2/en_speaker_*). Example mapping in VOICE_PROFILES:
 
 `python
 VOICE_PROFILES = {
@@ -53,7 +53,7 @@ SPEED_MAP remains available but the current TTS implementation may not support r
 
 ---
 
-## Stage3  TTS Synthesis (StyleTTS2 Studio)
+## Stage3  Kokoro Synthesis
 
 The TTS backend is initialized lazily via its package API (e.g. a preload or constructor call). _generate_segment simply calls
 
@@ -96,7 +96,7 @@ run_narrator_agent(
 
 ## Notes
 
-- The legacy Kokoro-specific compatibility patch remains in the code but is no longer necessary under StyleTTS2 Studio and can be removed in a future cleanup.
+- The legacy espeak/phonemizer compatibility patch remains in the code and may be needed by Kokoro.
 - Voice list may change as the TTS provider evolves; users can override VOICE_PROFILES manually or extend them.
 - The Streamlit UI and docs have been updated to reflect the current TTS provider.
 
