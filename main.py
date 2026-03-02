@@ -121,8 +121,7 @@ Use your best judgment to split the text into meaningful segments based on chang
 - If the text is purely narration with no dialogue, return a single segment with speaker "N
 ARRATOR" and speaker_profile "narrator_neutral".
 -include emottional tone in speaker_profile when identifiable from the text (e.g. "male_gruff" for a rough, angry male character, "female_warm" for a kind, gentle female character, etc.)
-- For ambiguous cases, use your best judgment to assign speaker profiles based on the content and tone
-
+- Focus very very well in the gender and the age of the characters so the voices are consistent and fitting. If you can't identify the gender or age, use "narrator_neutral" for speaker_profile.
 Rules:
 - Split the text into meaningful segments. Each new speaker = new segment.
 - Consecutive narration can be merged into one segment.
@@ -381,25 +380,14 @@ def run_narrator_agent(
 
 if __name__ == "__main__":
 
-    sample_text = """The attic was thick with the scent of aged cedar and dust. Sunlight cut through the gloom in a single, sharp beam.
+    sample_text = """"This is a simple testing passage to exercise the narrator agent.
 
-"Hello," Alice said softly, her small voice echoing slightly. She looked around the quiet room, her eyes wide. "Is anyone else up here, Daddy?"
+    It includes narration and a little dialogue.
+    
+    "Hi there," Bob said, "It's unsettling to think that while we’re in this old dust, machines are learning to think and mimic our souls better than we can ourselves."
+    
+    "Hello," Alice replied, "It is scary because if computers start doing everything and dreaming for us, will there be any room left for real people to just be quiet and explore places like this?"
 
-"Hi there," Bob answered, smiling as he sat on a wooden crate. "Just us and the shadows, kiddo. What do you think of this place?"
-
-"It’s very quiet," she whispered, stepping closer to him. "Why is everything covered in sheets? Are the chairs sleeping?"
-
-"You could say that," Bob replied. "They’ve been sleeping for a long time. My grandpa put them to bed years ago."
-
-"Will we wake them up?"
-
-"Maybe one or two," he said. "But we have to be gentle. It's a sleepy kind of place."
-
-"I like the dust," Alice remarked, reaching out to poke a sunbeam. "It looks like tiny stars."
-
-"It does," Bob agreed. "Just don't breathe too many stars in, okay?"
-
-The narrator described the exchange with a calm, neutral tone. The dialogue remained the primary focus, recorded with a straightforward detachment that avoided leaning into the sentimentality of the father-daughter bond.
     """
 
     run_narrator_agent(
