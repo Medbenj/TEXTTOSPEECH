@@ -1,6 +1,6 @@
 # TextToSpeech Project Plan
 
-Current implementation uses a local Python pipeline built around the Bark texttospeech model. The project no longer relies on external TTS providers  everything runs offline once the Bark models are downloaded.
+Current implementation uses a local Python pipeline built around the StyleTTS2 Studio text‑to‑speech model. The project no longer relies on external TTS providers; everything runs offline once the StyleTTS2 models are downloaded.
 
 ---
 
@@ -8,11 +8,11 @@ Current implementation uses a local Python pipeline built around the Bark textto
 The agent operates in four sequential stages:
 
 1. **Text analysis**  parse raw input text into segments with speaker metadata using an LLM (Gemini) or a fallback rulebased parser.
-2. **Voice assignment**  map each segment to a Bark voice identifier and optionally adjust speed.
-3. **Audio generation**  synthesize each segment via Bark, returning numpy arrays at 24kHz.
+2. **Voice assignment**  map each segment to a voice identifier exposed by the TTS package and optionally adjust speed.
+3. **Audio generation**  synthesize each segment via the selected TTS library, returning numpy arrays at 24kHz.
 4. **Stitch & export**  concatenate the clips with configurable silence and write a 16bit PCM WAV using Pythons builtin wave module.
 
-Network access is only required for the optional Gemini API key; all TTS is local with Bark models.
+Network access is only required for the optional Gemini API key; all TTS is local with the chosen TTS library.
 
 ---
 
@@ -22,7 +22,8 @@ Network access is only required for the optional Gemini API key; all TTS is loca
 
 - Identify speakers and label narration or dialogue.
 - Choose a speaker_profile from the predefined set.
-- Suggest speaking ate (slow/normal/fast) and pitch (ignored by Bark).
+- Suggest speaking 
+ate (slow/normal/fast) and pitch (ignored by the TTS engine).
 - Split into segments at speaker changes or narrative breaks.
 
 A fallback _basic_parser uses regex heuristics if no API key is provided. The output list of dictionaries drives the downstream pipeline.
@@ -31,7 +32,7 @@ A fallback _basic_parser uses regex heuristics if no API key is provided. The ou
 
 ## Stage2  Voice Mapping
 
-Voice profiles now correspond to Bark voices (2/en_speaker_*). Example mapping in VOICE_PROFILES:
+Voice profiles currently correspond to whatever identifiers the StyleTTS2 Studio package exposes (2/en_speaker_*). Example mapping in VOICE_PROFILES:
 
 `python
 VOICE_PROFILES = {
@@ -48,16 +49,16 @@ VOICE_PROFILES = {
 }
 `
 
-SPEED_MAP remains available but Bark doesnt support realtime speed adjustment; any rate suggestions are currently ignored (future versions could postprocess with librosa).
+SPEED_MAP remains available but the current TTS implementation may not support realtime speed adjustment; any rate suggestions are currently ignored (future versions could postprocess with librosa).
 
 ---
 
-## Stage3  Bark Synthesis
+## Stage3  TTS Synthesis (StyleTTS2 Studio)
 
-Bark is initialized lazily via a preload_models() call. _generate_segment simply calls
+The TTS backend is initialized lazily via its package API (e.g. a preload or constructor call). _generate_segment simply calls
 
 `python
-from bark import generate_audio, SAMPLE_RATE
+from <tts_package> import generate_audio, SAMPLE_RATE  # replace with real import
 
 ...
 
@@ -77,7 +78,8 @@ This logic is unchanged from the previous design: silence segments are inserted 
 
 ## Usage & Dependencies
 
-The main function un_narrator_agent now advertises Bark TTS in its header and documentation. Install the required packages using pip install -r requirements.txt or ensure ark and 
+The main function 
+un_narrator_agent now advertises Bark TTS in its header and documentation. Install the required packages using pip install -r requirements.txt or ensure ark and 
 umpy are in pyproject.toml.
 
 Example invocation:
@@ -94,8 +96,8 @@ run_narrator_agent(
 
 ## Notes
 
-- The old Kokoro-specific compatibility patch remains in the code but is no longer necessary and can be removed in a future cleanup.
-- Voice list may change as Bark evolves; users can override VOICE_PROFILES manually or extend them.
-- The Streamlit UI and docs have been updated to reflect Bark usage.
+- The legacy Kokoro-specific compatibility patch remains in the code but is no longer necessary under StyleTTS2 Studio and can be removed in a future cleanup.
+- Voice list may change as the TTS provider evolves; users can override VOICE_PROFILES manually or extend them.
+- The Streamlit UI and docs have been updated to reflect the current TTS provider.
 
-This plan now aligns with the current Barkbased implementation in main.py and related files.
+This plan now aligns with the current implementation in main.py and related files, which use StyleTTS2 Studio as the backend.
