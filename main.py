@@ -156,32 +156,86 @@ def _basic_parser(text: str) -> list[dict]:
     segments = []
     paragraphs = [p.strip() for p in re.split(r'\n{2,}', text) if p.strip()]
     speaker_counter = {}
+    speaker_profiles = {}  # Track consistent profiles for speakers
 
     for para in paragraphs:
-        quotes = re.findall(r'"([^"]+)"', para)
-        if quotes:
-            non_quote = re.sub(r'"[^"]+"', '', para).strip().strip(',').strip()
-            speaker_match = re.search(
-                r'(?:said|asked|replied|shouted|whispered|cried)\s+(\w+)|(\w+)\s+(?:said|asked|replied|shouted|whispered|cried)',
-                non_quote, re.IGNORECASE
-            )
-            speaker = (
-                (speaker_match.group(1) or speaker_match.group(2)).capitalize()
-                if speaker_match else f"Character_{len(speaker_counter) + 1}"
-            )
-            if speaker not in speaker_counter:
-                speaker_counter[speaker] = len(speaker_counter)
-            if non_quote:
-                segments.append({"speaker": "NARRATOR", "text": non_quote,
-                                  "speaker_profile": "narrator_neutral", "rate": "normal", "pitch": "normal"})
-            profile_options = ["male_young", "female_young", "male_old", "female_warm", "male_gruff"]
-            profile = profile_options[speaker_counter[speaker] % len(profile_options)]
-            for quote in quotes:
-                segments.append({"speaker": speaker, "text": quote,
-                                  "speaker_profile": profile, "rate": "normal", "pitch": "normal"})
-        else:
+        # Split paragraph into narration and dialogue while preserving order
+        parts = []
+        last_end = 0
+        
+        # Find all quoted sections with their positions
+        for match in re.finditer(r'"([^"]*)"', para):
+            quote_text = match.group(1)
+            quote_start = match.start()
+            quote_end = match.end()
+            
+            # Add narration before the quote
+            if quote_start > last_end:
+                narration = para[last_end:quote_start].strip().strip(',').strip()
+                if narration:
+                    parts.append(("narration", narration))
+            
+            # Add the dialogue
+            parts.append(("dialogue", quote_text, quote_start, quote_end))
+            last_end = quote_end
+        
+        # Add any remaining narration after the last quote
+        if last_end < len(para):
+            remaining = para[last_end:].strip().strip(',').strip()
+            if remaining:
+                parts.append(("narration", remaining))
+        
+        # If no quotes found, treat entire paragraph as narration
+        if not parts:
             segments.append({"speaker": "NARRATOR", "text": para,
                               "speaker_profile": "narrator_neutral", "rate": "normal", "pitch": "normal"})
+            continue
+        
+        # Process parts in order
+        for part in parts:
+            if part[0] == "narration":
+                segments.append({"speaker": "NARRATOR", "text": part[1],
+                                  "speaker_profile": "narrator_neutral", "rate": "normal", "pitch": "normal"})
+            else:  # dialogue
+                quote_text = part[1]
+                quote_start = part[2]
+                quote_end = part[3]
+                
+                # Extract speaker from attribution (look backward and forward from quote)
+                before_text = para[:quote_start]
+                after_text = para[quote_end:]
+                
+                speaker = None
+                
+                # Try to find speaker in text before quote
+                speaker_match = re.search(
+                    r'(\w+)\s+(?:said|asked|replied|shouted|whispered|cried)(?:\s+to\s+\w+)?(?:\s*[:,]?\s*)?$',
+                    before_text, re.IGNORECASE
+                )
+                if speaker_match:
+                    speaker = speaker_match.group(1).capitalize()
+                else:
+                    # Try to find speaker in text after quote
+                    speaker_match = re.search(
+                        r'^(?:\s*[:,]?\s*)(\w+)\s+(?:said|asked|replied|shouted|whispered|cried)',
+                        after_text, re.IGNORECASE
+                    )
+                    if speaker_match:
+                        speaker = speaker_match.group(1).capitalize()
+                
+                if not speaker:
+                    speaker = f"Character_{len(speaker_counter) + 1}"
+                
+                # Assign profile if not already assigned to this speaker
+                if speaker not in speaker_profiles:
+                    if speaker not in speaker_counter:
+                        speaker_counter[speaker] = len(speaker_counter)
+                    profile_options = ["male_young", "female_young", "male_old", "female_warm", "male_gruff"]
+                    speaker_profiles[speaker] = profile_options[speaker_counter[speaker] % len(profile_options)]
+                
+                segments.append({"speaker": speaker, "text": quote_text,
+                                  "speaker_profile": speaker_profiles[speaker], "rate": "normal", "pitch": "normal"})
+    
     return segments
 
 
@@ -282,16 +336,22 @@ def stitch_and_export(
     """
     Concatenate all audio segments with silence gaps,
     then write a 16-bit PCM WAV using Python's built-in wave module.
+    Preserves the original order of segments, replacing failed ones with brief silence.
     """
-    valid = [a for a in audio_segments if a is not None and len(a) > 0]
-    if not valid:
-        raise RuntimeError("No valid audio segments to stitch.")
+    if not audio_segments:
+        raise RuntimeError("No audio segments to stitch.")
 
     silence = _make_silence(pause_ms)
     pieces  = []
-    for i, audio in enumerate(valid):
-        pieces.append(audio)
-        if i < len(valid) - 1:
+    for i, audio in enumerate(audio_segments):
+        # Use the audio if available, otherwise use brief silence to maintain ordering
+        if audio is not None and len(audio) > 0:
+            pieces.append(audio)
+        else:
+            pieces.append(_make_silence(100))  # brief 100ms silence for failed segments
+        
+        # Add pause between segments (but not after the last one)
+        if i < len(audio_segments) - 1:
             pieces.append(silence)
 
     combined = np.concatenate(pieces)
@@ -384,9 +444,9 @@ if __name__ == "__main__":
 
     It includes narration and a little dialogue.
     
-    "Hi there," Bob said, "It's unsettling to think that while we’re in this old dust, machines are learning to think and mimic our souls better than we can ourselves."
+    Bob said, "It's unsettling to think that while we’re in this old dust, machines are learning to think and mimic our souls better than we can ourselves."
     
-    "Hello," Alice replied, "It is scary because if computers start doing everything and dreaming for us, will there be any room left for real people to just be quiet and explore places like this?"
+    Alice replied, "It is scary because if computers start doing everything and dreaming for us, will there be any room left for real people to just be quiet and explore places like this?"
 
     """
 
