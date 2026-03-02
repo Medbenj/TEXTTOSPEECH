@@ -381,13 +381,25 @@ def run_narrator_agent(
 
 if __name__ == "__main__":
 
-    sample_text = """This is a simple testing passage to exercise the narrator agent.
-    It includes narration and a little dialogue.
+    sample_text = """The attic was thick with the scent of aged cedar and dust. Sunlight cut through the gloom in a single, sharp beam.
 
-    "Hello," said Alice softly, looking around the quiet room.
-    "Hi there," Bob answered, smiling.
+"Hello," Alice said softly, her small voice echoing slightly. She looked around the quiet room, her eyes wide. "Is anyone else up here, Daddy?"
 
-    The narrator described the moment with a calm, neutral tone.
+"Hi there," Bob answered, smiling as he sat on a wooden crate. "Just us and the shadows, kiddo. What do you think of this place?"
+
+"It’s very quiet," she whispered, stepping closer to him. "Why is everything covered in sheets? Are the chairs sleeping?"
+
+"You could say that," Bob replied. "They’ve been sleeping for a long time. My grandpa put them to bed years ago."
+
+"Will we wake them up?"
+
+"Maybe one or two," he said. "But we have to be gentle. It's a sleepy kind of place."
+
+"I like the dust," Alice remarked, reaching out to poke a sunbeam. "It looks like tiny stars."
+
+"It does," Bob agreed. "Just don't breathe too many stars in, okay?"
+
+The narrator described the exchange with a calm, neutral tone. The dialogue remained the primary focus, recorded with a straightforward detachment that avoided leaning into the sentimentality of the father-daughter bond.
     """
 
     run_narrator_agent(
