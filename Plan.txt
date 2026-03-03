@@ -33,7 +33,7 @@ A fallback _basic_parser uses regex heuristics if no API key is provided. The ou
 ## Stage2  Voice Mapping
 
 Voice profiles now correspond to Kokoro voices (American/British speakers). Example mapping in VOICE_PROFILES: (2/en_speaker_*). Example mapping in VOICE_PROFILES:
-
+still looking for a better models
 `python
 VOICE_PROFILES = {
      narrator_neutral: v2/en_speaker_1,
