@@ -134,6 +134,34 @@ TEXT TO ANALYZE:
 \"\"\"
 """
 
+CHARACTER_METADATA_PROMPT = """
+You are an expert literary analyst. Extract and analyze ALL unique characters and narrators from the text.
+
+For EACH character/narrator, return a JSON object with COMPLETE metadata:
+- "name": character name or "NARRATOR" for narration
+- "type": one of "narrator", "character", or "minor_character"
+- "gender": one of "male", "female", "neutral", or "unknown"
+- "age_range": one of "child", "teen", "young_adult", "adult", "middle_aged", "elderly", or "unknown"
+- "age_estimate": estimated age or age range (e.g., "7-9 years", "30s", "unknown")
+- "voice_profile": the speaker_profile from this list:
+    narrator_neutral | narrator_male | narrator_female |
+    male_young | male_old | male_gruff |
+    female_young | female_old | female_warm | child
+- "personality_traits": list of personality descriptors (e.g., ["kind", "nervous", "authoritative"])
+- "emotional_tone": how they speak (e.g., "warm", "harsh", "cheerful", "sad")
+- "role_description": brief description of their role in the text
+- "sample_dialogue": one or two lines of their dialogue (or empty string for pure narration)
+- "appearance_details": physical description if mentioned (or empty string)
+- "relationships": list of other characters they interact with
+
+Return ONLY a valid JSON array of character objects. No markdown, no explanation.
+
+TEXT TO ANALYZE:
+\"\"\"
+{text}
+\"\"\"
+"""
+
 
 def analyze_text(text: str, api_key: Optional[str] = None) -> list[dict]:
     gemini_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
@@ -150,6 +178,81 @@ def analyze_text(text: str, api_key: Optional[str] = None) -> list[dict]:
         print("[WARNING] No GEMINI_API_KEY/GOOGLE_API_KEY found. Using basic rule-based parser.")
         print("   For best results, set your Gemini API key.\n")
         return _basic_parser(text)
+
+
+def extract_character_metadata(text: str, api_key: Optional[str] = None) -> list[dict]:
+    """
+    Extract detailed metadata about all characters and narrators in the text.
+    Returns a list of character dictionaries with comprehensive metadata.
+    """
+    gemini_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if gemini_key:
+        client = genai.Client(api_key=gemini_key)
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=CHARACTER_METADATA_PROMPT.format(text=text[:12000]),
+        )
+        raw = (getattr(response, "text", None) or str(response)).strip()
+        raw = re.sub(r"^```json\s*|^```\s*|\s*```$", "", raw, flags=re.MULTILINE).strip()
+        return json.loads(raw)
+    else:
+        print("[WARNING] No GEMINI_API_KEY/GOOGLE_API_KEY found. Using basic character extraction.")
+        print("   For best results, set your Gemini API key.\n")
+        return _basic_character_extractor(text)
+
+
+def _basic_character_extractor(text: str) -> list[dict]:
+    """
+    Fallback: Extract character metadata using basic regex patterns.
+    Returns limited metadata when no API key is available.
+    """
+    characters = {}
+    
+    # Find all quoted dialogue to extract speaker names
+    dialogue_pattern = r'(\w+(?:\s+\w+)?)\s+(?:said|asked|replied|shouted|whispered|cried|exclaimed|muttered|called|responded)\s*[,:]?\s*"([^"]*)"'
+    
+    for match in re.finditer(dialogue_pattern, text, re.IGNORECASE):
+        speaker_name = match.group(1).title()
+        dialogue = match.group(2)
+        
+        if speaker_name not in characters:
+            characters[speaker_name] = {
+                "name": speaker_name,
+                "type": "character",
+                "gender": "unknown",
+                "age_range": "unknown",
+                "age_estimate": "unknown",
+                "voice_profile": "narrator_neutral",
+                "personality_traits": [],
+                "emotional_tone": "neutral",
+                "role_description": f"Character in text",
+                "sample_dialogue": dialogue[:100],
+                "appearance_details": "",
+                "relationships": [],
+            }
+        else:
+            # Update sample dialogue if this one is better
+            if len(dialogue) > len(characters[speaker_name].get("sample_dialogue", "")):
+                characters[speaker_name]["sample_dialogue"] = dialogue[:100]
+    
+    # Add narrator if any narration exists
+    if not any(c["name"] == "NARRATOR" for c in characters.values()):
+        characters["NARRATOR"] = {
+            "name": "NARRATOR",
+            "type": "narrator",
+            "gender": "neutral",
+            "age_range": "unknown",
+            "age_estimate": "unknown",
+            "voice_profile": "narrator_neutral",
+            "personality_traits": [],
+            "emotional_tone": "neutral",
+            "role_description": "Story narrator/description",
+            "sample_dialogue": "",
+            "appearance_details": "",
+            "relationships": [],
+        }
+    
+    return list(characters.values())
 
 
 def _basic_parser(text: str) -> list[dict]:
@@ -434,6 +537,55 @@ def run_narrator_agent(
     return final_path
 
 
+def extract_and_display_characters(
+    input_text: str,
+    gemini_api_key: Optional[str] = None,
+) -> list[dict]:
+    """
+    Extract and display all characters and their metadata from the text.
+    Returns structured character data without generating audio.
+    
+    Character metadata includes:
+    - Name and type (narrator, character, minor_character)
+    - Gender and age range with estimate
+    - Voice profile assignment
+    - Personality traits and emotional tone
+    - Role description and appearance details
+    - Sample dialogue and relationships
+    """
+    print("=" * 60)
+    print("  CHARACTER METADATA EXTRACTION")
+    print("=" * 60)
+    
+    print("\n[EXTRACTION] Analyzing text for characters and metadata...")
+    characters = extract_character_metadata(input_text, api_key=gemini_api_key)
+    
+    print(f"\n✅ Found {len(characters)} unique character(s):\n")
+    
+    for i, char in enumerate(characters, 1):
+        print(f"{'─' * 60}")
+        print(f"[{i}] NAME: {char.get('name', 'UNKNOWN')}")
+        print(f"    TYPE: {char.get('type', 'unknown').upper()}")
+        print(f"    GENDER: {char.get('gender', 'unknown')}")
+        print(f"    AGE: {char.get('age_range', 'unknown')} ({char.get('age_estimate', 'unknown')})")
+        print(f"    VOICE: {char.get('voice_profile', 'narrator_neutral')}")
+        print(f"    TONE: {char.get('emotional_tone', 'neutral')}")
+        print(f"    TRAITS: {', '.join(char.get('personality_traits', [])) or 'none identified'}")
+        print(f"    ROLE: {char.get('role_description', 'not specified')}")
+        if char.get('appearance_details'):
+            print(f"    APPEARANCE: {char.get('appearance_details')}")
+        if char.get('sample_dialogue'):
+            print(f"    SAMPLE: \"{char.get('sample_dialogue')}\"")
+        if char.get('relationships'):
+            print(f"    INTERACTIONS: {', '.join(char.get('relationships', []))}")
+    
+    print(f"\n{'─' * 60}")
+    print("\n📊 Character Summary (JSON format):\n")
+    print(json.dumps(characters, indent=2))
+    
+    return characters
+
+
 # ─────────────────────────────────────────────
 #  EXAMPLE USAGE
 # ─────────────────────────────────────────────
@@ -452,6 +604,17 @@ if __name__ == "__main__":
 
     """
 
+    # ─── Option 1: Extract character metadata only ───
+    print("\n" + "="*60)
+    print("DEMO: Character Extraction")
+    print("="*60)
+    # Uncomment to extract characters without generating audio:
+    # characters = extract_and_display_characters(sample_text)
+    
+    # ─── Option 2: Run full narrator agent (analyze + TTS) ───
+    print("\n" + "="*60)
+    print("DEMO: Full Narrator Agent")
+    print("="*60)
     run_narrator_agent(
         input_text=sample_text,
         output_path="my_story.wav",
