@@ -7,6 +7,18 @@ import sys
 import wave
 from typing import Optional
 
+# Hugging Face GPU support for zero-configuration GPU allocation
+try:
+    from huggingface_hub import spaces
+    HAS_SPACES = True
+except ImportError:
+    HAS_SPACES = False
+    # Fallback: define a dummy decorator if huggingface_hub isn't installed
+    class spaces:
+        @staticmethod
+        def GPU(fn):
+            return fn
+
 # Ensure UTF-8 encoding for output (especially important on Windows)
 if sys.stdout.encoding != 'utf-8':
     import io
@@ -369,6 +381,7 @@ def _voice_lang(voice: str) -> str:
 #          returns numpy float32 arrays
 # ─────────────────────────────────────────────
 
+@spaces.GPU
 def _generate_segment(text: str, voice: str, speed: float) -> np.ndarray:
     """
     Generate audio for one text segment using Kokoro.
@@ -388,10 +401,12 @@ def _generate_segment(text: str, voice: str, speed: float) -> np.ndarray:
     return np.concatenate(chunks)
 
 
+@spaces.GPU
 def generate_audio_segments(script: list[dict]) -> list[Optional[np.ndarray]]:
     """
     Generate audio for all segments. Returns list of numpy arrays (or None for empty segments).
     Runs synchronously — Kokoro is local CPU/GPU inference, no async needed.
+    GPU-accelerated on Hugging Face Spaces.
     """
     results: list[Optional[np.ndarray]] = []
 
