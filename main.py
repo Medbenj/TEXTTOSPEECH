@@ -107,7 +107,6 @@ SPEED_MAP = {"slow": 0.8, "normal": 1.0, "fast": 1.2}
 # Kokoro sample rate is always 24000 Hz
 SAMPLE_RATE = 24000
 
-
 # ─────────────────────────────────────────────
 #  STEP 1: Analyze text with Gemini
 # ─────────────────────────────────────────────
@@ -635,4 +634,3 @@ if __name__ == "__main__":
         output_path="my_story.wav",
         # gemini_api_key=os.getenv("GEMINI_API_KEY"),
     )
-#done#
