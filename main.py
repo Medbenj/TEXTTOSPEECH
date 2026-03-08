@@ -35,7 +35,6 @@ load_dotenv()
 # a `set_data_path` classmethod on `EspeakWrapper` while some
 # packages (misaki/kokoro) call it at import time. Add a small
 # shim so those imports succeed.
-#
 # On Windows, also explicitly set espeak-ng paths using espeakng_loader
 try:
     import importlib
